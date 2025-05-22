@@ -18,8 +18,10 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         2: " O \t",  # target
         3: " √ \t",  # box on target
         4: " X \t",  # box
-        5: " P \t",  # player
-        6: " S \t",  # player on target
+        5: " P \t",  # player1
+        6: " Q \t",  # player2
+        7: " S \t",  # player1 on target
+        8: " T \t",  # player2 on target
         # Use tab separator to separate columns and \n\n to separate rows.
     }
 
@@ -46,6 +48,7 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             num_boxes=kwargs.pop('num_boxes', 3),
             **kwargs
         )
+        self.agent2_position = None # Agent 2 (Q)
         self.ACTION_SPACE = gym.spaces.discrete.Discrete(4, start=1)
         self.reward = 0
         self._valid_actions = []
@@ -110,6 +113,20 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             
             # self.action_sequence = self._reverse_action_sequence(action_sequence)
             self.player_position = np.argwhere(self.room_state == 5)[0]
+            
+            ######
+            empty_positions = np.argwhere(self.room_state == 1)
+
+            empty_positions = [pos for pos in empty_positions if not np.array_equal(pos, self.player_position)]
+
+            if len(empty_positions) == 0:
+                raise RuntimeError("No space left to place second player (Q).")
+            else:
+                q_pos = empty_positions[np.random.choice(len(empty_positions))]
+                self.room_state[tuple(q_pos)] = 6
+                self.agent2_position = q_pos    
+            ######
+            
             self.num_env_steps = self.reward_last = self.boxes_on_target = 0
             return self.render(mode)
         
