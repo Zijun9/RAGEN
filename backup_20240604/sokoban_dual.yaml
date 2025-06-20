@@ -1,0 +1,42 @@
+env:
+  name: "sokoban_dual"
+  data_dir: "data/sokoban"
+  env_kwargs:
+    dim_x: 6
+    dim_y: 6
+    num_boxes: 1
+    max_steps: 100
+    search_depth: 30
+    dual_agent: true
+
+actor_rollout_ref:
+  model:
+    p_path: "Qwen/Qwen2.5-0.5B-Instruct"
+    q_path: "Qwen/Qwen2.5-0.5B-Instruct"
+  critic:
+    p_path: "Qwen/Qwen2.5-0.5B-Instruct"
+    q_path: "Qwen/Qwen2.5-0.5B-Instruct"
+    optim:
+      lr: 5e-7
+  actor:
+    optim:
+      lr: 5e-7
+  rollout:
+    temperature: 0.1
+    top_p: 0.9
+    top_k: 50
+
+# Override default training parameters for better dual-agent performance
+training:
+  temperature: 0.1  # Lower temperature
+  max_turns: 3      # Fewer turns for simpler training
+  train_batch_size: 4  # Restore original batch size
+  micro_batch_size: 1  # Reduce micro batch size
+  rollout_tp_size: 1   # Reduce tensor parallel size
+  n_rollout: 4         # Reduce number of rollouts
+
+# Lower learning rate for fine-tuning
+optimization:
+  actor_lr: 5e-7
+  critic_lr: 5e-7
+  gpu_memory_utilization: 0.3  # Reduce GPU memory usage

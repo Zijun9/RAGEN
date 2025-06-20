@@ -1,0 +1,30 @@
+env:
+  name: "sokoban_dual"
+  data_dir: "data/sokoban"
+  env_kwargs:
+    dim_x: 6
+    dim_y: 6
+    num_boxes: 1
+    max_steps: 100
+    search_depth: 30
+    dual_agent: true
+
+actor_rollout_ref:
+  model:
+    p_path: "Qwen/Qwen2.5-0.5B-Instruct"
+    q_path: "Qwen/Qwen2.5-0.5B-Instruct"
+
+# 快速测试的训练配置覆盖（使用基础配置中已存在的键）
+training:
+  train_data_num: 100  # 只用100个训练样本
+  val_data_num: 10     # 只用10个验证样本
+  train_batch_size: 2  # 小批次
+  val_batch_size: 2    # 小批次
+  total_epochs: 1      # 只训练1个epoch
+  n_rollout: 4         # 减少智能体数量，加快速度
+  max_turns: 3         # 减少轮数，加快速度
+
+# 快速测试的训练器配置覆盖
+trainer:
+  save_freq: 10   # 更频繁保存
+  test_freq: 5    # 更频繁验证 

@@ -37,20 +37,34 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
     PENALTY_FOR_INVALID = -1
 
     def __init__(self, **kwargs):
-        dim_room = kwargs.pop('dim_room', (10, 10))
-        max_steps = kwargs.pop('max_steps', 120)
-        num_boxes = kwargs.pop('num_boxes', 3)
-        search_depth = kwargs.pop('search_depth', 30)
-        dual_agent = kwargs.pop('dual_agent', False)
-        print(f'[DEBUG][SokobanEnv.__init__] dual_agent={dual_agent}, dim_room={dim_room}, num_boxes={num_boxes}, max_steps={max_steps}, search_depth={search_depth}')
-        self.dual_agent = dual_agent  # 提前赋值，确保reset时可用
-        GymSokobanEnv.__init__(self, dim_room=dim_room, max_steps=max_steps, num_boxes=num_boxes)
         BaseDiscreteActionEnv.__init__(self)
+        self.cur_seq = []
+        self.action_sequence = []
+        self.search_depth = kwargs.pop('search_depth', 300)
+        GymSokobanEnv.__init__(
+            self,
+            dim_room=kwargs.pop('dim_room', (6, 6)), 
+            max_steps=kwargs.pop('max_steps', 100),
+            num_boxes=kwargs.pop('num_boxes', 3),
+            **kwargs
+        )
         self.agent2_position = None # Agent 2 (Q)
         self.ACTION_SPACE = gym.spaces.discrete.Discrete(4, start=1)
         self.reward = 0
         self._valid_actions = []
-        self.search_depth = search_depth
+
+
+    # @staticmethod
+    # @override
+    # def formulate_output(env_feedback: str, done: bool = False):
+    #     """
+    #     No environment feedback for Sokoban
+    #     NOTE hard coded for sokoban easy now
+    #     """
+
+    #     return ""
+
+
 
     def extract_action(self, text):
         """
@@ -62,6 +76,8 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         - 4: Right
         """
         DIRECTION_MAP = {"Up": 1, "Down": 2, "Left": 3, "Right": 4}
+        # TODO: originally, we parse either number (key of direction_map) or direction (value of direction_map).
+        # here we remove numbers and preserve directions only, but regex has not been removed. please remove them later.
         pattern = r'^\s*(([1-4])\s*\((up|down|left|right)\)|(up|down|left|right)|([1-4]))\s*$'
         match = re.fullmatch(pattern, text.strip(), flags=re.IGNORECASE | re.X)
         
@@ -77,42 +93,64 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         
         return self.INVALID_ACTION
 
+
     def reset(self, mode='tiny_rgb_array', seed=None):
-        print(f'[DEBUG][SokobanEnv.reset] self.dual_agent={self.dual_agent}')
-        max_attempts = 10
-        last_exception = None
-        for attempt in range(1, max_attempts + 1):
-            self._reset_tracking_variables()
+        self._reset_tracking_variables()
+        with NoLoggerWarnings():
             try:
-                with NoLoggerWarnings():
-                    print(f'[DEBUG][SokobanEnv.reset] before _get_room, self.dual_agent={self.dual_agent}')
-                    self.room_state, self.room_fixed, self.box_mapping, _ = self._get_room()
-                    print(f'[DEBUG][SokobanEnv.reset] after _get_room, self.dual_agent={self.dual_agent}')
-                    player_positions = np.argwhere(self.room_state == 5)
-                    if player_positions.shape[0] == 0:
-                        raise RuntimeError(f"[DEBUG] Reset attempt {attempt}/{max_attempts} failed: No player (P) found in generated room! dim_room={self.dim_room}, num_boxes={self.num_boxes}, search_depth={getattr(self, 'search_depth', 30)}, dual_agent={getattr(self, 'dual_agent', False)}")
-                    self.player_position = player_positions[0]
-                    # Initialize second agent (Q)
-                    empty_positions = np.argwhere(self.room_state == 1)
-                    empty_positions = [pos for pos in empty_positions if not np.array_equal(pos, self.player_position)]
-                    if len(empty_positions) == 0:
-                        raise RuntimeError(f"[DEBUG] Reset attempt {attempt}/{max_attempts} failed: No space left to place second player (Q). dim_room={self.dim_room}, num_boxes={self.num_boxes}, search_depth={getattr(self, 'search_depth', 30)}, dual_agent={getattr(self, 'dual_agent', False)}")
-                    else:
-                        q_pos = empty_positions[np.random.choice(len(empty_positions))]
-                        self.room_state[tuple(q_pos)] = 6
-                        self.agent2_position = q_pos
-                    self.num_env_steps = self.reward_last = self.boxes_on_target = 0
-                    return self.render(mode)
-            except Exception as e:
-                print(f"[DEBUG] Reset attempt {attempt}/{max_attempts} failed: {e}")
-                last_exception = e
-        raise RuntimeError(f"[FATAL] Failed to generate valid room after {max_attempts} attempts! Last error: {last_exception}")
+                with set_seed(seed):
+                    self.room_fixed, self.room_state, self.box_mapping, action_sequence = generate_room(
+                        dim=self.dim_room,
+                        num_steps=self.num_gen_steps,
+                        num_boxes=self.num_boxes,
+                        search_depth=self.search_depth
+                    )
+            except (RuntimeError, RuntimeWarning) as e:
+                print("[SOKOBAN] Runtime Error/Warning: {}".format(e))
+                print("[SOKOBAN] Retry . . .")
+                next_seed = abs(hash(str(seed))) % (2 ** 32) if seed is not None else None
+                return self.reset(mode, next_seed)
+            
+            # self.action_sequence = self._reverse_action_sequence(action_sequence)
+            self.player_position = np.argwhere(self.room_state == 5)[0]
+            
+            ######
+            empty_positions = np.argwhere(self.room_state == 1)
+
+            empty_positions = [pos for pos in empty_positions if not np.array_equal(pos, self.player_position)]
+
+            if len(empty_positions) == 0:
+                raise RuntimeError("No space left to place second player (Q).")
+            else:
+                q_pos = empty_positions[np.random.choice(len(empty_positions))]
+                self.room_state[tuple(q_pos)] = 6
+                self.agent2_position = q_pos    
+            ######
+            
+            self.num_env_steps = self.reward_last = self.boxes_on_target = 0
+            return self.render(mode)
+        
 
     def finished(self):
         return self.num_env_steps >= self.max_steps or self.success()
 
     def success(self):
         return self.boxes_on_target == self.num_boxes
+    
+
+    # def step(self, action: int or list):
+    #     actions = [action] if isinstance(action, int) else action
+            
+    #     for act in actions:
+    #         with NoLoggerWarnings():
+    #             if act != self.INVALID_ACTION:
+    #                 self._valid_actions.append(act)
+    #             _, reward, done, _ = GymSokobanEnv.step(self, action, observation_mode='tiny_rgb_array')
+    #         if done:
+    #             break
+            
+    #     obs = self.render()
+    #     return obs, reward, done, _
 
     def step(self, action: int):
         """
@@ -126,8 +164,14 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         prev_player_position = self.player_position
         _, reward, done, _ = GymSokobanEnv.step(self, action, observation_mode='tiny_rgb_array')
         
+        # # NOTE re-define reward for sokoban
+        # reward = -1 # format reward
+        # if done:
+        #     reward = 1 # success reward
+            
         obs = self.render()
         return obs, reward, done, {"action_is_effective": not np.array_equal(prev_player_position, self.player_position)}
+     
 
     def render(self, mode='tiny_rgb_array'):
         assert mode in ['tiny_rgb_array', 'list', 'state', 'rgb_array']
@@ -135,6 +179,7 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         if mode == 'rgb_array':
             img = self.get_image(mode, scale=1) # numpy array
             return img
+
 
         if mode == 'state':
             return np.where((self.room_state == 5) & (self.room_fixed == 2), 6, self.room_state)
@@ -149,13 +194,13 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
             lookup = lambda cell: self.GRID_LOOKUP.get(cell, "?")
             return "\n".join("".join(lookup(cell) for cell in row) for row in room_state)
     
+        
     def copy(self):
         new_self = SokobanEnv(
             dim_room=self.dim_room,
             max_steps=self.max_steps,
             num_boxes=self.num_boxes,
-            search_depth=self.search_depth,
-            dual_agent=getattr(self, 'dual_agent', False)
+            search_depth=self.search_depth
         )
         new_self.room_fixed = self.room_fixed.copy()
         new_self.room_state = self.room_state.copy()
@@ -165,22 +210,23 @@ class SokobanEnv(BaseDiscreteActionEnv, GymSokobanEnv):
         new_self.reward = self.reward
         new_self._valid_actions = copy.deepcopy(self._valid_actions)
         return new_self
+    
 
+
+
+    # def _reverse_action_sequence(self, action_sequence):
+    #     def reverse_action(action):
+    #         return (action % 2 + 1) % 2 + 2 * (action // 2) # 0 <-> 1, 2 <-> 3
+    #     return [reverse_action(action) + 1 for action in action_sequence[::-1]] # action + 1 to match the action space
+            
     def set_state(self, rendered_state):
         # from the rendered state, set the room state and player position
         self.room_state = np.where(rendered_state == 6, 5, rendered_state)
         self.player_position = np.argwhere(self.room_state == 5)[0]
+        
+        
 
-    def _get_room(self):
-        print(f'[DEBUG][SokobanEnv._get_room] self.dual_agent={self.dual_agent}')
-        room = generate_room(
-            dim=self.dim_room,
-            num_boxes=self.num_boxes,
-            search_depth=getattr(self, 'search_depth', 30),
-            second_player=getattr(self, 'dual_agent', False)
-        )
-        print(f'[DEBUG][SokobanEnv._get_room] called generate_room with second_player={getattr(self, "dual_agent", False)}')
-        return room
+
 
 GUIDE = """
 ### Sokoban Puzzle Instructions
@@ -243,7 +289,7 @@ Each puzzle will have a different layout, but the rules and goal remain the same
 
 #### Tips for Beginners
 1. **Move Boxes Step by Step**: Push them one at a time toward the targets.
-2. **Think Ahead**: Avoid pushing a box into a spot where you can't move it again.
+2. **Think Ahead**: Avoid pushing a box into a spot where you can’t move it again.
 
 Enjoy the challenge!
 """

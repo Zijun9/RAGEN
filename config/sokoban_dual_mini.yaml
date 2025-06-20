@@ -1,0 +1,16 @@
+env:
+  name: "sokoban_dual"
+  data_dir: "data/sokoban"
+  env_kwargs:
+    dim_x: 6
+    dim_y: 6
+    num_boxes: 1
+    max_steps: 100
+    search_depth: 30
+    dual_agent: true
+
+actor_rollout_ref:
+  hybrid_engine: true
+  model:
+    p_path: "Qwen/Qwen2.5-0.5B-Instruct"
+    q_path: "Qwen/Qwen2.5-0.5B-Instruct" 

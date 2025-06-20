@@ -1,3 +1,4 @@
+
 # Trainig paradigm
 rl_or_sft: "rl"
 # System settings
@@ -114,20 +115,3 @@ sft:
     size: 4
     p: 0.8
     is_slippery: true
-
-actor_rollout_ref:
-  model:
-    p_path: ""
-    q_path: ""
-  critic:
-    p_path: ""
-    q_path: ""
-    optim:
-      lr: 0.0
-  actor:
-    optim:
-      lr: 0.0
-  rollout:
-    temperature: 0.0
-    top_p: 0.0
-    top_k: 0

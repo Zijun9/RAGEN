@@ -225,49 +225,26 @@ Following code is adapted from the nicely written gym_sokoban repo
 """
 
 def generate_room(dim=(13, 13), p_change_directions=0.35, num_steps=25, num_boxes=3, tries=4, second_player=False, search_depth=100):
-    """
-    Generates a Sokoban room, represented by an integer matrix. The elements are encoded as follows:
-    wall = 0
-    empty space = 1
-    box target = 2
-    box not on target = 3
-    box on target = 4
-    player = 5
-
-    :param dim:
-    :param p_change_directions:
-    :param num_steps:
-    :param num_boxes:
-    :param tries:
-    :param second_player:
-    :return: Numpy 2d Array, box mapping, action sequence
-    """
+    print(f'[DEBUG][generate_room] second_player={second_player}, dim={dim}, num_boxes={num_boxes}, search_depth={search_depth}')
     room_state = np.zeros(shape=dim)
     room_structure = np.zeros(shape=dim)
-
     # Some times rooms with a score == 0 are the only possibility.
     # In these case, we try another model.
     for t in range(tries):
         room = room_topology_generation(dim, p_change_directions, num_steps)
         room = place_boxes_and_player(room, num_boxes=num_boxes, second_player=second_player)
-
         # Room fixed represents all not movable parts of the room
         room_structure = np.copy(room)
         room_structure[room_structure == 5] = 1
-
         # Room structure represents the current state of the room including movable parts
         room_state = room.copy()
         room_state[room_state == 2] = 4
-
         room_state, box_mapping, action_sequence = reverse_playing(room_state, room_structure, search_depth)
         room_state[room_state == 3] = 4
-
         if box_displacement_score(box_mapping) > 0:
             break
-
     if box_displacement_score(box_mapping) == 0:
         raise RuntimeWarning('Generated Model with score == 0')
-
     # Add random player movement after reverse_playing
     if box_displacement_score(box_mapping) == 1:
         move_probability = 0.8
@@ -280,7 +257,10 @@ def generate_room(dim=(13, 13), p_change_directions=0.35, num_steps=25, num_boxe
         continue_probability=0.5,   # 50% chance to continue moving after each step
         max_steps=3                 # Maximum of 3 steps
     )
-
+    # Debug: 打印P和Q的位置
+    p_positions = np.argwhere(room_state == 5)
+    q_positions = np.argwhere(room_state == 6)
+    print(f'[DEBUG][generate_room] P positions: {p_positions}, Q positions: {q_positions}')
     return room_structure, room_state, box_mapping, action_sequence
 
 
@@ -364,7 +344,6 @@ def room_topology_generation(dim=(10, 10), p_change_directions=0.35, num_steps=1
 def place_boxes_and_player(room, num_boxes, second_player):
     """
     Places the player and the boxes into the floors in a room.
-
     :param room:
     :param num_boxes:
     :return:
@@ -381,21 +360,23 @@ def place_boxes_and_player(room, num_boxes, second_player):
             num_boxes)
         )
 
-    # Place player(s)
+    # Place player P
     ind = np.random.randint(num_possible_positions)
     player_position = possible_positions[0][ind], possible_positions[1][ind]
-    room[player_position] = 5
+    room[player_position] = 5  # P
 
     if second_player:
+        # Place player Q，不能和P重叠
+        possible_positions = np.where(room == 1)
+        num_possible_positions = possible_positions[0].shape[0]
         ind = np.random.randint(num_possible_positions)
-        player_position = possible_positions[0][ind], possible_positions[1][ind]
-        room[player_position] = 5
+        q_position = possible_positions[0][ind], possible_positions[1][ind]
+        room[q_position] = 6  # Q
 
     # Place boxes
     for n in range(num_boxes):
         possible_positions = np.where(room == 1)
         num_possible_positions = possible_positions[0].shape[0]
-
         ind = np.random.randint(num_possible_positions)
         box_position = possible_positions[0][ind], possible_positions[1][ind]
         room[box_position] = 2
